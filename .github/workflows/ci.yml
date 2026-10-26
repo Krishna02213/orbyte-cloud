@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      ORBYTE_DATA_DIR: ${{ runner.temp }}/orbyte-ci-data
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,6 +35,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: Set temporary database directory
+        run: echo "ORBYTE_DATA_DIR=$RUNNER_TEMP/orbyte-ci-data" >> "$GITHUB_ENV"
 
       - name: Lint
         run: npm run lint
