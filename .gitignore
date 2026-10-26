@@ -5,3 +5,17 @@ data/*.db-shm
 data/*.db-wal
 *.log
 .DS_Store
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*accessKeys*.csv
+.aws/
+
+# macOS archive metadata
+._*

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Download, Mail, Search, ShieldCheck, Users } from "lucide-react";
 
 export type ConsultationRow = {
@@ -65,7 +66,7 @@ export function AdminDashboard({
       <div className="mx-auto max-w-[1400px]">
         <header className="flex flex-col justify-between gap-6 border-b border-white/10 pb-8 md:flex-row md:items-end">
           <div>
-            <a href="/" className="text-xs font-bold uppercase tracking-[.2em] text-[#c9ff5a]">← Orbyte Cloud</a>
+            <Link href="/" className="text-xs font-bold uppercase tracking-[.2em] text-[#c9ff5a]">← Orbyte Cloud</Link>
             <h1 className="display mt-4 text-5xl font-black uppercase md:text-7xl">Consultation requests</h1>
             <p className="mt-3 text-white/50">Local lead dashboard · {displayName}</p>
             {databasePath && (
@@ -74,7 +75,7 @@ export function AdminDashboard({
               </p>
             )}
           </div>
-          <a href="/" className="w-fit rounded-full border border-white/15 px-5 py-3 text-sm font-semibold hover:bg-white/10">View website</a>
+          <Link href="/" className="w-fit rounded-full border border-white/15 px-5 py-3 text-sm font-semibold hover:bg-white/10">View website</Link>
         </header>
 
         <section className="grid gap-4 py-8 sm:grid-cols-3">
