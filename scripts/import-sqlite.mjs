@@ -25,7 +25,10 @@ try {
   const sequence = hasSequence
     ? source.prepare("SELECT seq FROM sqlite_sequence WHERE name='consultation_requests'").get()
     : undefined;
-  lastIssuedId = Math.max(Number(sequence?.seq ?? 0), ...sourceRows.map((row) => Number(row.id)), 0);
+  lastIssuedId = sourceRows.reduce(
+    (highest, row) => Math.max(highest, Number(row.id)),
+    Math.max(Number(sequence?.seq ?? 0), 0),
+  );
   assert.ok(Number.isSafeInteger(lastIssuedId) && lastIssuedId >= 0, "Invalid source ID sequence.");
 } finally {
   source.close();
