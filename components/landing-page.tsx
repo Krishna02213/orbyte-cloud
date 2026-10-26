@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useRef, useState } from "react";
+import { ScrollControls } from "./scroll-controls";
 import {
   ArrowDownRight, ArrowRight, Boxes, Check, ChevronDown, CircleGauge,
   CloudCog, Code2, Database, Gauge, Menu, Orbit, Radar, ShieldCheck,
@@ -95,6 +96,7 @@ export function LandingPage() {
 
   return (
     <main className="overflow-hidden">
+      <ScrollControls />
       <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#071018]/90 text-white backdrop-blur-xl">
         <div className="shell flex h-[72px] items-center justify-between">
           <button onClick={() => go("top")} className="flex items-center gap-3" aria-label="Orbyte Cloud home">
