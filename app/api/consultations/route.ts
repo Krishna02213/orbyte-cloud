@@ -1,4 +1,4 @@
-import { saveConsultation } from "../../../lib/local-db";
+import { saveConsultation } from "../../../lib/postgres-db";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "One or more fields are too long." }, { status: 400 });
     }
 
-    const id = saveConsultation({ name, email, company, teamSize, service, message });
+    const id = await saveConsultation({ name, email, company, teamSize, service, message });
     return Response.json(
       { ok: true, reference: "ORB-" + String(id).padStart(4, "0") },
       { status: 201 },

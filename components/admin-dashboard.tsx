@@ -23,11 +23,11 @@ function csvCell(value: string | number) {
 export function AdminDashboard({
   rows,
   displayName,
-  databasePath,
+  databaseLabel,
 }: {
   rows: ConsultationRow[];
   displayName: string;
-  databasePath?: string;
+  databaseLabel?: string;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -68,10 +68,10 @@ export function AdminDashboard({
           <div>
             <Link href="/" className="text-xs font-bold uppercase tracking-[.2em] text-[#c9ff5a]">← Orbyte Cloud</Link>
             <h1 className="display mt-4 text-5xl font-black uppercase md:text-7xl">Consultation requests</h1>
-            <p className="mt-3 text-white/50">Local lead dashboard · {displayName}</p>
-            {databasePath && (
+            <p className="mt-3 text-white/50">Lead dashboard · {displayName}</p>
+            {databaseLabel && (
               <p className="mt-2 max-w-3xl break-all font-mono text-xs text-white/35">
-                Database file: {databasePath}
+                Database: {databaseLabel}
               </p>
             )}
           </div>

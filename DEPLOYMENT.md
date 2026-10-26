@@ -7,7 +7,7 @@ Website: http://13.206.108.114
 1. Make a feature branch, commit your changes, and push it to GitHub.
 2. Open a pull request to `main`. GitHub Actions installs locked dependencies,
    runs ESLint, checks the deployment script, builds the production app, and
-   tests its homepage, static assets, form validation, SQLite writes, and admin.
+   tests its homepage, static assets, form validation, PostgreSQL writes, and admin.
 3. Merge into `main`. The same checks run on the merged commit. If they pass,
    Actions uploads that exact tested package to EC2 and deploys it automatically.
 4. Watch the build and deployment in the repository's **Actions** tab.
@@ -16,6 +16,8 @@ You can also use **Actions → CI/CD → Run workflow** on `main` to redeploy.
 Pull requests and manual runs from other branches cannot deploy to production.
 The workflow is `.github/workflows/ci.yml`. It builds on GitHub, so EC2 does
 not need to run `npm install` or `npm run build` for each update.
+PostgreSQL deployment additionally requires the repository Actions variable
+`ORBYTE_RDS_READY=true`, set after the initial migration preparations.
 
 ## How deployment works
 
@@ -27,7 +29,9 @@ Its only sudo permission is restarting `orbyte-cloud`.
 
 Each release lives in `/opt/orbyte-cloud/releases`. The server checks the
 archive checksum and commit, starts it on port 3002 with a temporary database,
-and checks its homepage and favicon. It then backs up SQLite, switches
+and checks its homepage, favicon, and database-backed admin page. The separate
+preflight database is `orbyte_preflight` on RDS, configured by
+`/etc/orbyte-cloud/preflight.json`. It checks access to production, then switches
 `/opt/orbyte-cloud/current`, restarts the app on port 3000, and checks the live
 process and website. If activation fails or is interrupted, it restores the
 previous release and restarts the app. Deployments are serialized.
@@ -39,12 +43,20 @@ An external network failure after activation marks the job failed; automatic
 rollback is triggered by the server's activation checks.
 
 The server retains three recent release directories plus any protected
-current/previous releases, and the five newest database snapshots. GitHub
-retains deployment artifacts for seven days. SQLite data lives separately at
-`/var/lib/orbyte-cloud/orbyte.db`; deployments do not replace it. Snapshots
-live in `/var/lib/orbyte-cloud/backups`. Release rollback does not undo database
-schema changes, so future migrations should remain compatible with the prior
-release. These snapshots are on the same server, not an off-server backup.
+current/previous releases. GitHub retains deployment artifacts for seven days.
+Production records live in the RDS PostgreSQL database `orbyte`. Runtime
+connection settings are in `/etc/orbyte-cloud/database.json`, readable only by
+root and the trusted application group; TLS validates the AWS RDS certificate.
+The build runner does not receive production database credentials.
+
+Database backups are disabled at the user's request. This helper does not
+create database snapshots, export production records, or delete old snapshots.
+RDS automated backups must separately have retention set to zero. Existing
+SQLite files and snapshots remain on EC2 until deliberately cleaned up.
+Release rollback does not undo database changes; future migrations must remain
+compatible with the preceding application release. Follow
+[RDS_MIGRATION.md](RDS_MIGRATION.md) for the initial SQLite-to-RDS cutover;
+do not roll back to a SQLite application after RDS starts receiving submissions.
 
 ## Connect and check status
 
