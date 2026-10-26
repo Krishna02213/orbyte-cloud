@@ -103,18 +103,11 @@ failed import rolls back instead of leaving partial records. It creates no
 database backup or exported copy. If the destination has existing submissions,
 stop and reconcile them instead of deleting or overwriting them.
 
-Reconnect as `postgres` to database `orbyte` and reset the identity sequence:
-
-```sql
-SELECT setval(
-    pg_get_serial_sequence('public.consultation_requests', 'id'),
-    COALESCE(MAX(id), 1),
-    MAX(id) IS NOT NULL
-) FROM public.consultation_requests;
-```
-
-This handles an empty source too, and avoids future IDs colliding with imported
-records. The app role intentionally lacks permission to change the sequence.
+Reconnect as `postgres` to database `orbyte` and execute the exact sequence-reset
+SQL printed by the importer under `Run as postgres`. It considers both existing
+records and SQLite's last issued ID, including IDs of deleted records. This
+handles an empty source too, and avoids reusing previously issued references.
+The app role intentionally lacks permission to change the sequence.
 Then verify again from the staged release:
 
 ```sh

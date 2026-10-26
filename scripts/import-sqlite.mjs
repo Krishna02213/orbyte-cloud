@@ -11,6 +11,7 @@ if (!["--verify", "--import-writes-paused"].includes(mode)) {
 assert.ok(fs.existsSync(sourcePath), "SQLite source file does not exist.");
 const source = new DatabaseSync(sourcePath, { readOnly: true });
 let sourceRows;
+let lastIssuedId;
 try {
   sourceRows = source.prepare(
     "SELECT id, name, email, company, team_size, service, message, status, created_at " +
@@ -20,6 +21,12 @@ try {
     const utc = /(?:Z|[+-]\d{2}:\d{2})$/i.test(stamp) ? stamp : stamp + "Z";
     return { ...row, created_at: new Date(utc).toISOString() };
   });
+  const hasSequence = source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'").get();
+  const sequence = hasSequence
+    ? source.prepare("SELECT seq FROM sqlite_sequence WHERE name='consultation_requests'").get()
+    : undefined;
+  lastIssuedId = Math.max(Number(sequence?.seq ?? 0), ...sourceRows.map((row) => Number(row.id)), 0);
+  assert.ok(Number.isSafeInteger(lastIssuedId) && lastIssuedId >= 0, "Invalid source ID sequence.");
 } finally {
   source.close();
 }
@@ -56,8 +63,13 @@ try {
   }
   await client.query("COMMIT");
   console.log(`Verified ${sourceRows.length} records, including original IDs, timestamps, and all field values.`);
+  console.log(`Last issued SQLite ID: ${lastIssuedId}`);
   if (mode === "--import-writes-paused") {
     console.log("Import committed. Reset the identity sequence as postgres before enabling form submissions.");
+    console.log("Run as postgres:\n" +
+      "SELECT setval(pg_get_serial_sequence('public.consultation_requests', 'id'), " +
+      `GREATEST(COALESCE(MAX(id), 0), ${lastIssuedId}, 1), ` +
+      `GREATEST(COALESCE(MAX(id), 0), ${lastIssuedId}) > 0) FROM public.consultation_requests;`);
   }
 } catch (error) {
   await client.query("ROLLBACK");

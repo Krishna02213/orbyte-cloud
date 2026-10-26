@@ -26,10 +26,14 @@ test("SQLite import preserves data, respects restricted permissions, and rolls b
 
     function fixture(file, invalid = false) {
       const db = new DatabaseSync(file);
-      db.exec("CREATE TABLE consultation_requests (id INTEGER PRIMARY KEY, name TEXT, email TEXT, company TEXT, team_size TEXT, service TEXT, message TEXT, status TEXT, created_at TEXT)");
+      db.exec("CREATE TABLE consultation_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, company TEXT, team_size TEXT, service TEXT, message TEXT, status TEXT, created_at TEXT)");
       const insert = db.prepare("INSERT INTO consultation_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       insert.run(7, "O'Neil", "migration@example.invalid", "Example", "4", "Cloud", "Hello 🌍", "new", "2026-10-25 18:00:00");
       insert.run(invalid ? 2147483648 : 19, "Second", "second@example.invalid", "", "", "Security", "Line 1\nLine 2", "reviewed", "2026-10-26 12:30:00");
+      if (!invalid) {
+        insert.run(30, "Deleted test", "deleted@example.invalid", "", "", "Test", "", "new", "2026-10-26 13:00:00");
+        db.prepare("DELETE FROM consultation_requests WHERE id = 30").run();
+      }
       db.close();
     }
 
@@ -52,6 +56,7 @@ test("SQLite import preserves data, respects restricted permissions, and rolls b
     const before = hash();
     const imported = await run("--import-writes-paused", source);
     assert.equal(imported.status, 0, imported.output);
+    assert.match(imported.output, /Last issued SQLite ID: 30/);
     assert.equal(hash(), before, "Source SQLite file must remain unchanged.");
     const records = await pool.query("SELECT id, name, message, status, created_at FROM public.consultation_requests ORDER BY id");
     assert.deepEqual(records.rows.map((row) => row.id), [7, 19]);
@@ -63,9 +68,10 @@ test("SQLite import preserves data, respects restricted permissions, and rolls b
     assert.notEqual((await run("--import-writes-paused", source)).status, 0, "Repeated import must refuse existing data.");
     assert.equal((await pool.query("SELECT COUNT(*)::integer AS count FROM public.consultation_requests")).rows[0].count, 2);
     await assert.rejects(app.query("DELETE FROM public.consultation_requests"), /permission denied/);
-    await pool.query("SELECT setval(pg_get_serial_sequence('public.consultation_requests', 'id'), COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM public.consultation_requests");
+    const resetSql = imported.output.split("Run as postgres:\n")[1].trim();
+    await pool.query(resetSql);
     const next = await app.query("INSERT INTO public.consultation_requests (name, email, service) VALUES ('After import', 'test@example.invalid', 'Test') RETURNING id");
-    assert.equal(next.rows[0].id, 20, "Sequence reset must prevent future ID collisions.");
+    assert.equal(next.rows[0].id, 31, "Sequence reset must avoid reusing even deleted SQLite IDs.");
 
     await pool.query("TRUNCATE public.consultation_requests RESTART IDENTITY");
     const invalid = path.join(directory, "invalid.db");
