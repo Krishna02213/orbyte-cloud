@@ -27,7 +27,7 @@ test("SQLite import preserves data, respects restricted permissions, and rolls b
     function fixture(file, invalid = false) {
       const db = new DatabaseSync(file);
       db.exec("CREATE TABLE consultation_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, company TEXT, team_size TEXT, service TEXT, message TEXT, status TEXT, created_at TEXT)");
-      const insert = db.prepare("INSERT INTO consultation_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const insert = db.prepare("INSERT INTO consultation_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
       insert.run(7, "O'Neil", "migration@example.invalid", "Example", "4", "Cloud", "Hello 🌍", "new", "2026-10-25 18:00:00");
       insert.run(invalid ? 2147483648 : 19, "Second", "second@example.invalid", "", "", "Security", "Line 1\nLine 2", "reviewed", "2026-10-26 12:30:00");
       if (!invalid) {
