@@ -19,3 +19,4 @@ data/*.db-wal
 
 # macOS archive metadata
 ._*
+orbyte-release.tar.gz

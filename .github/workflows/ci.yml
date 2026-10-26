@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, build, and smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      ORBYTE_DATA_DIR: ${{ runner.temp }}/orbyte-ci-data
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.22.1"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Prepare standalone release
+        run: |
+          cp -r public .next/standalone/public
+          cp -r .next/static .next/standalone/.next/static
+          printf '%s\n' "$GITHUB_SHA" > .next/standalone/REVISION
+
+      - name: Test production release
+        env:
+          HOSTNAME: 127.0.0.1
+          PORT: "3000"
+          NODE_ENV: production
+        run: |
+          node .next/standalone/server.js > "$RUNNER_TEMP/orbyte-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/orbyte-server.log"' EXIT
+          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 --retry-max-time 45 http://127.0.0.1:3000/ > "$RUNNER_TEMP/orbyte-home.html"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const base = 'http://127.0.0.1:3000';
+          const html = fs.readFileSync(`${process.env.RUNNER_TEMP}/orbyte-home.html`, 'utf8');
+          assert.ok(html.includes('Orbyte Cloud'));
+          const script = html.match(/src="([^\"]*\/_next\/static\/[^\"]+\.js[^\"]*)"/);
+          assert.ok(script, 'Homepage must reference a JavaScript asset');
+          for (const path of ['/favicon.svg', script[1].replaceAll('&amp;', '&')]) {
+            assert.equal((await fetch(new URL(path, base))).status, 200, path);
+          }
+          const post = body => fetch(`${base}/api/consultations`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+          });
+          assert.equal((await post({})).status, 400);
+          const email = `ci-${Date.now()}@example.invalid`;
+          const saved = await post({name: 'CI smoke test', email, service: 'Deployment verification'});
+          assert.equal(saved.status, 201);
+          assert.equal((await saved.json()).ok, true);
+          const admin = await fetch(`${base}/admin`);
+          assert.equal(admin.status, 200);
+          assert.ok((await admin.text()).includes(email), 'Saved request must appear in dashboard');
+          console.log('PASS: homepage, static assets, validation, SQLite storage, and dashboard');
+          NODE
+
+      - name: Package tested release
+        run: tar -czf orbyte-release.tar.gz -C .next/standalone .
+
+      - name: Save deployment artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orbyte-release-${{ github.sha }}
+          path: orbyte-release.tar.gz
+          retention-days: 7
+          if-no-files-found: error
