@@ -8,6 +8,8 @@ import {
   TerminalSquare, WalletCards, X, Zap,
 } from "lucide-react";
 
+const messageCharacterLimit = 2000;
+
 const services = [
   {
     icon: Boxes,
@@ -63,6 +65,7 @@ export function LandingPage() {
   const [submittedScan, setSubmittedScan] = useState(false);
   const [formState, setFormState] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [formMessage, setFormMessage] = useState("");
+  const [messageLength, setMessageLength] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   const score = useMemo(() => 31 + scan.reduce((sum, value) => sum + value * 11, 0), [scan]);
   const SelectedIcon = services[activeService].icon;
@@ -88,6 +91,7 @@ export function LandingPage() {
       setFormState("success");
       setFormMessage(`Request saved. Your reference is ${result.reference}.`);
       formRef.current?.reset();
+      setMessageLength(0);
     } catch (error) {
       setFormState("error");
       setFormMessage(error instanceof Error ? error.message : "Please try again.");
@@ -339,7 +343,21 @@ export function LandingPage() {
               <label className="text-sm text-white/65">Engineering team<input name="teamSize" className="mt-2 w-full rounded-xl border border-white/15 bg-white/[.07] px-4 py-3 text-white outline-none focus:border-[var(--lime)]" placeholder="e.g. 12 people"/></label>
             </div>
             <label className="mt-5 block text-sm text-white/65">What can we help with? *<select required name="service" defaultValue="" className="mt-2 w-full rounded-xl border border-white/15 bg-[#111d25] px-4 py-3 text-white outline-none focus:border-[var(--lime)]"><option value="" disabled>Select a capability</option>{services.map((service) => <option key={service.title}>{service.title}</option>)}<option>Cloud migration</option><option>Not sure yet</option></select></label>
-            <label className="mt-5 block text-sm text-white/65">What is happening?<textarea name="message" rows={4} className="mt-2 w-full resize-none rounded-xl border border-white/15 bg-white/[.07] px-4 py-3 text-white outline-none focus:border-[var(--lime)]" placeholder="A little context helps us bring the right ideas…"/></label>
+            <label className="mt-5 block text-sm text-white/65">
+              What is happening?
+              <textarea
+                name="message"
+                rows={4}
+                maxLength={messageCharacterLimit}
+                onChange={(event) => setMessageLength(event.currentTarget.value.length)}
+                aria-describedby="contact-message-count"
+                className="mt-2 w-full resize-none rounded-xl border border-white/15 bg-white/[.07] px-4 py-3 text-white outline-none focus:border-[var(--lime)]"
+                placeholder="A little context helps us bring the right ideas…"
+              />
+            </label>
+            <p id="contact-message-count" className="mt-2 text-right text-xs text-white/50">
+              {messageLength} / {messageCharacterLimit} characters
+            </p>
             <button disabled={formState === "sending"} className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--lime)] py-4 font-bold text-[#071018] transition hover:bg-white disabled:cursor-wait disabled:opacity-60">{formState === "sending" ? "Saving request…" : "Request an architecture review"} <ArrowRight size={18}/></button>
             {formMessage && <p role="status" className={`mt-4 rounded-xl px-4 py-3 text-sm ${formState === "success" ? "bg-[var(--lime)]/15 text-[var(--lime)]" : "bg-red-500/15 text-red-200"}`}>{formMessage}</p>}
             <p className="mt-4 text-center text-xs text-white/35">By submitting, you agree that we may contact you about this request.</p>
