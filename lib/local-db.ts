@@ -33,6 +33,9 @@ if (process.env.NODE_ENV !== "production") {
   globalDatabase.__orbyteDatabase = database;
 }
 
+// Build workers and requests can open this database concurrently.
+database.exec("PRAGMA busy_timeout = 5000");
+
 database.exec(
   "CREATE TABLE IF NOT EXISTS consultation_requests (" +
     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
