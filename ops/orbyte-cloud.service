@@ -1,0 +1,23 @@
+[Unit]
+Description=Orbyte Cloud Next.js application
+After=network.target
+
+[Service]
+Type=simple
+User=orbyte-deploy
+Group=orbyte-cloud
+WorkingDirectory=/opt/orbyte-cloud/current
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3000
+Environment=ORBYTE_DATA_DIR=/var/lib/orbyte-cloud
+ExecStart=/usr/bin/node /opt/orbyte-cloud/current/server.js
+Restart=always
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

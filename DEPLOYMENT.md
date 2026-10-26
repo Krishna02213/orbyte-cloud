@@ -1,70 +1,103 @@
-# Server deployment
+# Deployment
 
 Website: http://13.206.108.114
 
-The project is deployed at `/home/ubuntu/orbyte-cloud-main` on the Ubuntu server.
-Node.js runs the production build on `127.0.0.1:3000`. Nginx serves public HTTP
-on port 80. Both services start automatically on boot.
+## Automatic updates
 
-## Connect
+1. Make a feature branch, commit your changes, and push it to GitHub.
+2. Open a pull request to `main`. GitHub Actions installs locked dependencies,
+   runs ESLint, checks the deployment script, builds the production app, and
+   tests its homepage, static assets, form validation, SQLite writes, and admin.
+3. Merge into `main`. The same checks run on the merged commit. If they pass,
+   Actions uploads that exact tested package to EC2 and deploys it automatically.
+4. Watch the build and deployment in the repository's **Actions** tab.
+
+You can also use **Actions → CI/CD → Run workflow** on `main` to redeploy.
+Pull requests and manual runs from other branches cannot deploy to production.
+The workflow is `.github/workflows/ci.yml`. It builds on GitHub, so EC2 does
+not need to run `npm install` or `npm run build` for each update.
+
+## How deployment works
+
+The `production` GitHub environment allows deployments from `main` and holds
+four secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, and `SSH_KNOWN_HOSTS`.
+The key belongs to a dedicated `orbyte-deploy` account. SSH forces that key to
+run `/usr/local/bin/orbyte-deploy`; it cannot open a shell or forward ports.
+Its only sudo permission is restarting `orbyte-cloud`.
+
+Each release lives in `/opt/orbyte-cloud/releases`. The server checks the
+archive checksum and commit, starts it on port 3002 with a temporary database,
+and checks its homepage and favicon. It then backs up SQLite, switches
+`/opt/orbyte-cloud/current`, restarts the app on port 3000, and checks the live
+process and website. If activation fails or is interrupted, it restores the
+previous release and restarts the app. Deployments are serialized.
+
+Nginx serves public HTTP on port 80 and blocks `/admin`. Both Nginx and the
+app start on boot. Switching a release restarts the app and can cause a brief
+interruption. The workflow also checks the public homepage and admin block.
+An external network failure after activation marks the job failed; automatic
+rollback is triggered by the server's activation checks.
+
+The server retains three recent release directories plus any protected
+current/previous releases, and the five newest database snapshots. GitHub
+retains deployment artifacts for seven days. SQLite data lives separately at
+`/var/lib/orbyte-cloud/orbyte.db`; deployments do not replace it. Snapshots
+live in `/var/lib/orbyte-cloud/backups`. Release rollback does not undo database
+schema changes, so future migrations should remain compatible with the prior
+release. These snapshots are on the same server, not an off-server backup.
+
+## Connect and check status
 
 ```sh
 ssh -i ~/Downloads/test.pem ubuntu@13.206.108.114
+sudo systemctl status orbyte-cloud
+sudo journalctl -u orbyte-cloud -n 100 --no-pager
+sudo systemctl restart orbyte-cloud
+cat /opt/orbyte-cloud/current/REVISION
+readlink -f /opt/orbyte-cloud/current
+readlink -f /opt/orbyte-cloud/previous
 ```
+
+The service definition is `/etc/systemd/system/orbyte-cloud.service` (source:
+`ops/orbyte-cloud.service`). The installed deployment script is
+`/usr/local/bin/orbyte-deploy` (source: `scripts/deploy-release.sh`). Changes
+to either of these server configuration files require installing the updated
+file on EC2; application deployments do not change the installed helper.
+The old source directory `/home/ubuntu/orbyte-cloud-main` is retained for
+reference and is no longer the running application.
 
 ## Admin dashboard
 
-The bundled admin page has no login, so Nginx blocks public access to `/admin`.
-Run this command on your Mac and leave it open:
+The bundled admin page has no login. To access it, run this command on your Mac
+and leave it open:
 
 ```sh
 ssh -i ~/Downloads/test.pem -N -L 3001:127.0.0.1:3000 ubuntu@13.206.108.114
 ```
 
-Then open http://127.0.0.1:3001/admin on your Mac.
+Then open http://127.0.0.1:3001/admin.
 
-## Manage the running app
+## Manual rollback
 
-Run these commands after connecting to the server:
-
-```sh
-sudo systemctl status orbyte-cloud
-sudo journalctl -u orbyte-cloud -n 100 --no-pager
-sudo systemctl restart orbyte-cloud
-```
-
-After uploading source updates, rebuild before restarting:
+Connect with your original `test.pem` key and run:
 
 ```sh
-cd /home/ubuntu/orbyte-cloud-main
-npm ci --no-audit --no-fund
-npm run lint
-NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=640 npm run build
+sudo -u orbyte-deploy bash
+exec 9>/opt/orbyte-cloud/.deploy.lock
+flock -w 120 9
+previous=$(readlink -f /opt/orbyte-cloud/previous)
+ln -s "$previous" /opt/orbyte-cloud/rollback-link
+mv -Tf /opt/orbyte-cloud/rollback-link /opt/orbyte-cloud/current
 sudo systemctl restart orbyte-cloud
+curl --fail http://127.0.0.1:3000/ > /dev/null
+exit
 ```
 
-Consultation data is stored separately at `/var/lib/orbyte-cloud/orbyte.db`.
-Preserve this directory during future deployments. The service definition is
-`/etc/systemd/system/orbyte-cloud.service`; the Nginx configuration is
-`/etc/nginx/sites-available/default`.
+Do not run a deployment concurrently with a manual rollback. The lock above
+prevents overlap. Inspect application logs if the health check fails.
 
-HTTPS and a custom domain have not been configured.
-
-## GitHub Actions CI
-
-`.github/workflows/ci.yml` runs on pull requests to `main`, pushes to `main`,
-and manual runs. It installs locked dependencies, runs ESLint, builds a
-standalone release, and starts that release to check the homepage, static
-assets, form validation, SQLite writes, and admin rendering.
-
-Pushes to `main` also save an `orbyte-release-<commit SHA>` artifact for seven
-days. It contains `orbyte-release.tar.gz`, including the standalone server,
-runtime dependencies, public files, static assets, and a `REVISION` file.
-The CI database lives outside the release directory and is not deployed.
-The workflow currently performs CI only; automatic EC2 deployment is the next
-setup step. No SSH credentials are required for this workflow.
-
-Standalone packages start with `HOSTNAME=127.0.0.1 PORT=3000 node server.js`
-from the extracted release directory, with `ORBYTE_DATA_DIR` set to the
-persistent database directory. The existing live service is unchanged until
-the deployment step is configured.
+The original administrative key remains in `~/Downloads/test.pem`. The
+dedicated CI key is in `~/.ssh/orbyte-cloud-actions` on the setup Mac and is
+stored encrypted in the GitHub environment. Never commit either key.
+GitHub runners must be able to reach EC2 on TCP port 22. AWS access keys are
+not used. HTTPS and a custom domain have not been configured.

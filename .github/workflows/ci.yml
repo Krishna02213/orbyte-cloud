@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -41,6 +41,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Check deployment script syntax
+        run: bash -n scripts/deploy-release.sh
 
       - name: Build production application
         run: npm run build
@@ -98,3 +101,60 @@ jobs:
           path: orbyte-release.tar.gz
           retention-days: 7
           if-no-files-found: error
+
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: http://13.206.108.114
+    concurrency:
+      group: orbyte-production
+      cancel-in-progress: false
+    steps:
+      - name: Download tested release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orbyte-release-${{ github.sha }}
+          path: release
+
+      - name: Configure deployment SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/orbyte-ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/orbyte-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/orbyte-ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/orbyte-ssh/key" > /dev/null
+
+      - name: Deploy and check release on server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          digest=$(sha256sum release/orbyte-release.tar.gz | cut -d ' ' -f 1)
+          ssh -T -i "$RUNNER_TEMP/orbyte-ssh/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/orbyte-ssh/known_hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            "$SSH_USER@$SSH_HOST" \
+            "deploy $GITHUB_SHA $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT $digest" \
+            < release/orbyte-release.tar.gz
+
+      - name: Check public website
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          curl --fail --silent --show-error --max-time 20 "http://$SSH_HOST/" -o "$RUNNER_TEMP/orbyte-live.html"
+          grep -q 'Orbyte Cloud' "$RUNNER_TEMP/orbyte-live.html"
+          status=$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' "http://$SSH_HOST/admin")
+          test "$status" = 403
+
+      - name: Remove temporary SSH files
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/orbyte-ssh"
