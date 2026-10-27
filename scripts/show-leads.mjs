@@ -1,13 +1,12 @@
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { getPool } from "../lib/postgres.mjs";
 
-const databasePath = path.join(process.cwd(), "data", "orbyte.db");
-const database = new DatabaseSync(databasePath);
-const rows = database
-  .prepare(
-    "SELECT id, name, email, company, team_size, service, message, status, created_at FROM consultation_requests ORDER BY created_at DESC, id DESC",
-  )
-  .all();
-
-console.log("Database:", databasePath);
-console.table(rows);
+const pool = getPool();
+try {
+  const { rows } = await pool.query(
+    "SELECT id, name, email, company, team_size, service, message, status, created_at " +
+    "FROM public.consultation_requests ORDER BY created_at DESC, id DESC",
+  );
+  console.table(rows);
+} finally {
+  await pool.end();
+}

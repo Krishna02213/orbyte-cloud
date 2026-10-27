@@ -20,3 +20,7 @@ data/*.db-wal
 # macOS archive metadata
 ._*
 orbyte-release.tar.gz
+database.json
+preflight.json
+__pycache__/
+*.pyc

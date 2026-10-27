@@ -1,16 +1,16 @@
 import { AdminDashboard } from "../../components/admin-dashboard";
-import { getDatabasePath, listConsultations } from "../../lib/local-db";
+import { listConsultations } from "../../lib/postgres-db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default function AdminPage() {
-  const rows = listConsultations();
+export default async function AdminPage() {
+  const rows = await listConsultations();
   return (
     <AdminDashboard
       rows={rows}
-      displayName="Local administrator"
-      databasePath={getDatabasePath()}
+      displayName="Administrator"
+      databaseLabel="PostgreSQL"
     />
   );
 }

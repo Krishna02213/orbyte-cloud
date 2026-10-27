@@ -26,7 +26,8 @@ health_check() {
   for attempt in {1..30}; do
     if curl --fail --silent --max-time 3 "http://127.0.0.1:$port/" -o "$work/health.html" &&
        grep -q 'Orbyte Cloud' "$work/health.html" &&
-       curl --fail --silent --max-time 3 "http://127.0.0.1:$port/favicon.svg" -o /dev/null; then
+       curl --fail --silent --max-time 3 "http://127.0.0.1:$port/favicon.svg" -o /dev/null &&
+       curl --fail --silent --max-time 8 "http://127.0.0.1:$port/admin" -o /dev/null; then
       return 0
     fi
     sleep 1
@@ -74,12 +75,17 @@ test -f "$release/server.js"
 test -f "$release/.next/BUILD_ID"
 test "$(cat "$release/REVISION")" = "$revision"
 
-# Check the Linux artifact with a disposable database before switching traffic.
-mkdir "$work/data"
+# Check the candidate against a separate PostgreSQL database, never production.
+test -r /etc/orbyte-cloud/preflight.json
+test -r /etc/orbyte-cloud/database.json
+ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/preflight.json \
+  /usr/bin/node "$release/scripts/init-postgres.mjs"
+ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/preflight.json \
+  /usr/bin/node "$release/scripts/check-postgres.mjs" orbyte_preflight
 (
   cd "$release"
   exec env NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=127.0.0.1 PORT=3002 \
-    ORBYTE_DATA_DIR="$work/data" /usr/bin/node server.js
+    ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/preflight.json /usr/bin/node server.js
 ) > "$work/probe.log" 2>&1 &
 probe_pid=$!
 health_check 3002
@@ -87,22 +93,10 @@ kill "$probe_pid"
 wait "$probe_pid" 2>/dev/null || true
 probe_pid=''
 
-# Use SQLite's online backup API so the running database remains consistent.
-python3 - "$revision-$run" <<'PY'
-import pathlib
-import sqlite3
-import sys
-data = pathlib.Path('/var/lib/orbyte-cloud')
-source = data / 'orbyte.db'
-if source.exists():
-    backups = data / 'backups'
-    backups.mkdir(exist_ok=True)
-    destination = backups / (sys.argv[1] + '.db')
-    with sqlite3.connect(f'file:{source}?mode=ro', uri=True) as live:
-        with sqlite3.connect(destination) as snapshot:
-            live.backup(snapshot)
-    print('Database snapshot saved:', destination.name)
-PY
+# Check production access before activation. Database backups are intentionally
+# disabled at the user's request; this helper does not create or delete any.
+ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/database.json \
+  /usr/bin/node "$release/scripts/check-postgres.mjs" orbyte
 
 ln -s "$release" "$work/current"
 # Set this first so an interruption during the switch also triggers rollback.
@@ -131,8 +125,4 @@ releases = sorted(
 for path in releases[3:]:
     if path.resolve() not in protected:
         shutil.rmtree(path)
-backups = pathlib.Path('/var/lib/orbyte-cloud/backups')
-if backups.exists():
-    for path in sorted(backups.glob('*.db'), key=lambda p: p.stat().st_mtime, reverse=True)[5:]:
-        path.unlink()
 PY

@@ -12,6 +12,7 @@ Environment=NEXT_TELEMETRY_DISABLED=1
 Environment=HOSTNAME=127.0.0.1
 Environment=PORT=3000
 Environment=ORBYTE_DATA_DIR=/var/lib/orbyte-cloud
+Environment=ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/database.json
 ExecStart=/usr/bin/node /opt/orbyte-cloud/current/server.js
 Restart=always
 RestartSec=5

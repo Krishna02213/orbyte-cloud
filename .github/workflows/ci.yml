@@ -19,8 +19,27 @@ jobs:
     name: Lint, build, and smoke test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: orbyte_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: orbyte_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d orbyte_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       NEXT_TELEMETRY_DISABLED: "1"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: orbyte_ci
+      PGUSER: postgres
+      PGPASSWORD: orbyte_ci_test
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,14 +55,19 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Set temporary database directory
-        run: echo "ORBYTE_DATA_DIR=$RUNNER_TEMP/orbyte-ci-data" >> "$GITHUB_ENV"
+      - name: Initialize test PostgreSQL schema
+        run: node scripts/init-postgres.mjs
 
       - name: Lint
         run: npm run lint
 
       - name: Check deployment script syntax
-        run: bash -n scripts/deploy-release.sh
+        run: |
+          bash -n scripts/deploy-release.sh
+          python3 -m py_compile ops/configure-rds.py
+
+      - name: Test data migration
+        run: node --test tests/migration.test.mjs
 
       - name: Build production application
         run: npm run build
@@ -53,6 +77,9 @@ jobs:
           cp -r public .next/standalone/public
           cp -r .next/static .next/standalone/.next/static
           printf '%s\n' "$GITHUB_SHA" > .next/standalone/REVISION
+          mkdir -p .next/standalone/scripts .next/standalone/lib
+          cp lib/postgres.mjs .next/standalone/lib/
+          cp scripts/schema.sql scripts/init-postgres.mjs scripts/check-postgres.mjs scripts/import-sqlite.mjs scripts/show-leads.mjs .next/standalone/scripts/
 
       - name: Test production release
         env:
@@ -87,14 +114,13 @@ jobs:
           const admin = await fetch(`${base}/admin`);
           assert.equal(admin.status, 200);
           assert.ok((await admin.text()).includes(email), 'Saved request must appear in dashboard');
-          console.log('PASS: homepage, static assets, validation, SQLite storage, and dashboard');
+          console.log('PASS: homepage, static assets, validation, PostgreSQL storage, and dashboard');
           NODE
 
       - name: Package tested release
         run: tar -czf orbyte-release.tar.gz -C .next/standalone .
 
       - name: Save deployment artifact
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orbyte-release-${{ github.sha }}
@@ -105,7 +131,7 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.ORBYTE_RDS_READY == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
