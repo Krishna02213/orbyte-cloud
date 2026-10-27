@@ -15,40 +15,10 @@ The administrator already created that table using `scripts/schema.sql`.
 Production schema changes are explicit administrator operations, never startup
 side effects or a build step.
 
-In the existing psql session as `postgres`, prepare isolated release checks:
-
-```sql
-CREATE ROLE orbyte_probe LOGIN;
-```
-
-Set a different password interactively:
-
-```text
-\password orbyte_probe
-```
-
-Then create the test database and its permissions:
-
-```sql
-CREATE DATABASE orbyte_preflight;
-GRANT CONNECT ON DATABASE orbyte_preflight TO orbyte_probe;
-```
-
-```text
-\connect orbyte_preflight
-```
-
-```sql
-GRANT USAGE, CREATE ON SCHEMA public TO orbyte_probe;
-```
-
-```text
-\connect orbyte
-\q
-```
-
-The probe role receives no production-table grants. Its database is on the same
-RDS instance, but release checks do not write to the production database.
+The setup command below creates an isolated `orbyte_preflight` database and a
+dedicated `orbyte_probe` login with a generated password. The probe role receives
+no production-table grants. Its database is on the same RDS instance, but release
+checks do not write to the production database.
 
 ## Stage credentials privately on EC2
 
@@ -59,9 +29,14 @@ sudo python3 /home/ubuntu/orbyte-rds-setup/configure-rds.py \
   --host orbyte-db.c1e8gqkwku76.ap-south-1.rds.amazonaws.com
 ```
 
-It prompts for the existing passwords for `orbyte_app` and `orbyte_probe`.
-Passwords are not printed, put into shell history, or sent to GitHub. The script
-downloads the AWS CA bundle and writes root-owned configuration files at
+It prompts privately for the existing passwords for `orbyte_app` and the
+administrator `postgres`. It validates the app login before making changes,
+then creates/configures the probe role and database with the administrator's
+permissions. The probe password is generated automatically and not displayed.
+Passwords are not printed, put into shell history, or sent to GitHub. Temporary
+root-only libpq password files are deleted after each connection; the master
+password is not retained. The script downloads the AWS CA bundle and writes
+root-owned configuration files at
 `/etc/orbyte-cloud/database.json` and `/etc/orbyte-cloud/preflight.json`, with
 mode 640 and group `orbyte-cloud`. Both application users are already trusted
 members of that group. No live service configuration is changed by this step.
@@ -86,7 +61,7 @@ Pause application deployments and wait for any active deployment to finish.
 Temporarily add an exact Nginx location for `/api/consultations` that returns
 HTTP 503, validate with `sudo nginx -t`, and reload Nginx. Other pages can remain
 available. Confirm requests are rejected and existing requests have completed
-before reading SQLite. Keep this pause through import, sequence reset, and
+before reading SQLite. Keep this pause through import, sequence advancement, and
 initial RDS deployment so no records arrive at the old database mid-transfer.
 
 From the staged release directory:
@@ -103,12 +78,13 @@ failed import rolls back instead of leaving partial records. It creates no
 database backup or exported copy. If the destination has existing submissions,
 stop and reconcile them instead of deleting or overwriting them.
 
-Reconnect as `postgres` to database `orbyte` and execute the exact sequence-reset
-SQL printed by the importer under `Run as postgres`. It considers both existing
-records and SQLite's last issued ID, including IDs of deleted records. This
-handles an empty source too, and avoids reusing previously issued references.
-The app role intentionally lacks permission to change the sequence.
-Then verify again from the staged release:
+The importer advances PostgreSQL's identity sequence past SQLite's last issued
+ID, including IDs of deleted records. It uses `nextval` with the app role's
+existing USAGE permission and never resets the sequence backwards or grants
+UPDATE permission. An excessive advancement gap (over one million) aborts the
+import for explicit administrator handling. Sequence gaps after a rolled-back
+transaction are harmless and normal in PostgreSQL. Verify again from the staged
+release:
 
 ```sh
 sudo -u orbyte-deploy env ORBYTE_DATABASE_CONFIG=/etc/orbyte-cloud/database.json \

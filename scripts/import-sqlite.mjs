@@ -64,15 +64,27 @@ try {
       throw new Error(`Verification failed at row ${i + 1}; import will be rolled back.`);
     }
   }
+  if (mode === "--import-writes-paused") {
+    const sequence = await client.query(
+      "SELECT last_value::text AS value, is_called FROM public.consultation_requests_id_seq",
+    );
+    const { value, is_called: called } = sequence.rows[0];
+    const gap = Math.max(0, lastIssuedId - Number(value) + (called ? 0 : 1));
+    assert.ok(gap <= 1000000, "Sequence gap is too large for automatic advancement; ask the administrator to set its value.");
+    if (gap) {
+      // USAGE permits nextval. Advance only, using existing app permissions;
+      // this never resets numbering or requires UPDATE privileges on a sequence.
+      await client.query(
+        "SELECT MAX(nextval('public.consultation_requests_id_seq')) FROM generate_series(1, $1::integer)",
+        [gap],
+      );
+    }
+  }
   await client.query("COMMIT");
   console.log(`Verified ${sourceRows.length} records, including original IDs, timestamps, and all field values.`);
   console.log(`Last issued SQLite ID: ${lastIssuedId}`);
   if (mode === "--import-writes-paused") {
-    console.log("Import committed. Reset the identity sequence as postgres before enabling form submissions.");
-    console.log("Run as postgres:\n" +
-      "SELECT setval(pg_get_serial_sequence('public.consultation_requests', 'id'), " +
-      `GREATEST(COALESCE(MAX(id), 0), ${lastIssuedId}, 1), ` +
-      `GREATEST(COALESCE(MAX(id), 0), ${lastIssuedId}) > 0) FROM public.consultation_requests;`);
+    console.log("Import committed. PostgreSQL identity numbering is ahead of all issued SQLite IDs.");
   }
 } catch (error) {
   await client.query("ROLLBACK");

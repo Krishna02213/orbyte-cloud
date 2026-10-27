@@ -62,7 +62,9 @@ jobs:
         run: npm run lint
 
       - name: Check deployment script syntax
-        run: bash -n scripts/deploy-release.sh
+        run: |
+          bash -n scripts/deploy-release.sh
+          python3 -m py_compile ops/configure-rds.py
 
       - name: Test data migration
         run: node --test tests/migration.test.mjs

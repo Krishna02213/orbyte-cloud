@@ -68,8 +68,7 @@ test("SQLite import preserves data, respects restricted permissions, and rolls b
     assert.notEqual((await run("--import-writes-paused", source)).status, 0, "Repeated import must refuse existing data.");
     assert.equal((await pool.query("SELECT COUNT(*)::integer AS count FROM public.consultation_requests")).rows[0].count, 2);
     await assert.rejects(app.query("DELETE FROM public.consultation_requests"), /permission denied/);
-    const resetSql = imported.output.split("Run as postgres:\n")[1].trim();
-    await pool.query(resetSql);
+    await assert.rejects(app.query("SELECT setval('public.consultation_requests_id_seq', 1)"), /permission denied/);
     const next = await app.query("INSERT INTO public.consultation_requests (name, email, service) VALUES ('After import', 'test@example.invalid', 'Test') RETURNING id");
     assert.equal(next.rows[0].id, 31, "Sequence reset must avoid reusing even deleted SQLite IDs.");
 
