@@ -23,10 +23,6 @@ All form submissions are stored in this normal SQLite file:
 
     data/orbyte.db
 
-The complete absolute location on this Mac is:
-
-    /Users/krishnasen/Documents/Codex/2026-10-25/https-www-kubenine-com-https-www/outputs/orbyte-cloud-local/data/orbyte.db
-
 The database file is created automatically after the first server start or form submission.
 
 You can view the records in three ways:
@@ -44,4 +40,4 @@ The server intentionally binds to 127.0.0.1, so it is only reachable from this M
 
 ## Optional database location
 
-Set ORBYTE_DATA_DIR before starting the server to place the database in another folder.
+Set `ORBYTE_DATA_DIR` before starting the server to place the database in another folder. The `npm run db:show` helper reads `data/orbyte.db` in the project directory, so use it when the default location is active.
